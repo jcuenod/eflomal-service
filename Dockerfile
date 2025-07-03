@@ -22,7 +22,7 @@ RUN make -C /eflomal/src
 
 # 3. Get the atools binary from fast_align
 # Instead of installing the .deb, we can just extract the binary from it.
-RUN wget --no-check-certificate -c https://github.com/Unbabel/fast-align-deb/raw/refs/heads/master/fast-align_2016.05.31-1_amd64.deb && \
+RUN wget -c https://github.com/Unbabel/fast-align-deb/raw/refs/heads/master/fast-align_2016.05.31-1_amd64.deb && \
     dpkg-deb -x fast-align_2016.05.31-1_amd64.deb /fast_align_pkg && \
     rm fast-align_2016.05.31-1_amd64.deb
 
