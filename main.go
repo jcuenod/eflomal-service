@@ -5,17 +5,19 @@ import (
     "fmt"
     "io"
     "log"
+    "math"
     "net/http"
     "os"
     "os/exec"
     "path/filepath"
+    "strconv"
     "strings"
 )
 
 var cmd *exec.Cmd
 
 // convertToEflomalFormat converts a text file to eflomal binary format
-func convertToEflomalFormat(input io.Reader, outputPath string) error {
+func convertToEflomalFormat(input io.Reader, outputPath string) (int, error) {
     scanner := bufio.NewScanner(input)
     var sentences [][]string
     vocab := make(map[string]int)
@@ -45,13 +47,13 @@ func convertToEflomalFormat(input io.Reader, outputPath string) error {
     }
     
     if err := scanner.Err(); err != nil {
-        return err
+        return 0, err
     }
     
     // Write eflomal format file
     outFile, err := os.Create(outputPath)
     if err != nil {
-        return err
+        return 0, err
     }
     defer outFile.Close()
     
@@ -72,7 +74,21 @@ func convertToEflomalFormat(input io.Reader, outputPath string) error {
         fmt.Fprintf(outFile, "\n")
     }
     
-    return nil
+    return len(sentences), nil
+}
+
+// calculateIterations calculates the number of iterations for each model (following the Python script in the eflomal repo)
+func calculateIterations(nSentences int, model int, relIterations float64) (int, int, int) {
+    iters := int(math.Max(2, math.Round(relIterations*5000/math.Sqrt(float64(nSentences)))))
+    iters4 := int(math.Max(1, float64(iters)/4))
+    
+    if model == 1 {
+        return iters, 0, 0
+    } else if model == 2 {
+        return int(math.Max(2, float64(iters4))), iters, 0
+    } else {
+        return int(math.Max(2, float64(iters4))), iters4, iters
+    }
 }
 
 func alignHandler(w http.ResponseWriter, r *http.Request) {
@@ -120,20 +136,35 @@ func alignHandler(w http.ResponseWriter, r *http.Request) {
     symPath := filepath.Join(tmpdir, "out.sym")
 
     // Save files in eflomal format
-    err = convertToEflomalFormat(src, srcPath)
+    nSentences, err := convertToEflomalFormat(src, srcPath)
     if err != nil {
         http.Error(w, "Failed to convert src file: "+err.Error(), http.StatusInternalServerError)
         return
     }
     
-    err = convertToEflomalFormat(tgt, tgtPath)
+    _, err = convertToEflomalFormat(tgt, tgtPath)
     if err != nil {
         http.Error(w, "Failed to convert tgt file: "+err.Error(), http.StatusInternalServerError)
         return
     }
 
+    // Calculate iterations dynamically based on sentence count
+    model := 3
+    relIterations := 1.0
+    iter1, iter2, iter3 := calculateIterations(nSentences, model, relIterations)
+
     // Run eflomal-align FORWARD
-    cmd = exec.Command("/app/eflomal", "-s", srcPath, "-t", tgtPath, "-f", fwdPath, "-r", revPath, "-m", "3")
+    cmd = exec.Command("/app/eflomal", 
+        "-s", srcPath, 
+        "-t", tgtPath, 
+        "-f", fwdPath, 
+        "-r", revPath, 
+        "-m", "3",
+        "-1", strconv.Itoa(iter1),  // IBM1 iterations
+        "-2", strconv.Itoa(iter2),  // HMM iterations  
+        "-3", strconv.Itoa(iter3),  // Fertility iterations
+        "-n", "1",  // Number of samplers
+        "-N", "0.2") // Null prior
     if out, err := cmd.CombinedOutput(); err != nil {
         http.Error(w, "eflomal-align failed: "+string(out), 500)
         return
