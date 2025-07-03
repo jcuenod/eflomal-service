@@ -129,7 +129,7 @@ func alignHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Temp dir error", http.StatusInternalServerError)
         return
     }
-    // defer os.RemoveAll(tmpdir)
+    defer os.RemoveAll(tmpdir)
 
     srcPath := filepath.Join(tmpdir, "src.txt")
     tgtPath := filepath.Join(tmpdir, "tgt.txt")
