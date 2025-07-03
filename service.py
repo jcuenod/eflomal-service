@@ -2,10 +2,22 @@ import os
 import shutil
 import tempfile
 import subprocess
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
+
+# Enable CORS for all origins (customize as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 EFLOMAL_ALIGN = "/app/eflomal/python/scripts/eflomal-align"
 ATOOLS = "atools"  # Adjust path if atools is not in PATH
