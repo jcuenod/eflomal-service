@@ -1,36 +1,53 @@
-# Use an official Python base image with build tools
-FROM python:3.9-slim
+FROM golang:1.22-bookworm AS builder
 
-# Install system dependencies for building eflomal
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    build-essential \
     git \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
+    wget
 
-# Download fastalign deb and install it
-RUN wget -c https://github.com/Unbabel/fast-align-deb/raw/refs/heads/master/fast-align_2016.05.31-1_amd64.deb && \
-    dpkg -i fast-align_2016.05.31-1_amd64.deb && \
+# 1. Build the Go service
+WORKDIR /src
+COPY main.go .
+
+RUN go mod init eflomal-service && go mod tidy
+# Build the Go binary. CGO_ENABLED=0 creates a static binary with no C dependencies.
+RUN CGO_ENABLED=0 go build -o /app/eflomal-service .
+
+
+# 2. Build eflomal
+# We can do this in a separate directory within the same builder stage
+RUN git clone --depth 1 https://github.com/robertostling/eflomal.git /eflomal
+RUN make -C /eflomal/src
+
+
+# 3. Get the atools binary from fast_align
+# Instead of installing the .deb, we can just extract the binary from it.
+RUN wget --no-check-certificate -c https://github.com/Unbabel/fast-align-deb/raw/refs/heads/master/fast-align_2016.05.31-1_amd64.deb && \
+    dpkg-deb -x fast-align_2016.05.31-1_amd64.deb /fast_align_pkg && \
     rm fast-align_2016.05.31-1_amd64.deb
 
-# Set the working directory
+
+# --- Final Stage ---
+FROM debian:bookworm-slim
+
+# Install runtime dependencies for eflomal
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set a non-root user for better security
+RUN useradd -ms /bin/bash appuser
+USER appuser
+
 WORKDIR /app
 
-# Clone eflomal repo and build the C binaries
-RUN git clone https://github.com/robertostling/eflomal.git /app/eflomal && \
-    cd /app/eflomal && \
-    python -m pip install .
+# Copy ONLY the necessary compiled artifacts from the builder stage
+COPY --from=builder /app/eflomal-service /app/eflomal-service
+COPY --from=builder /eflomal/src/eflomal /app/eflomal
+COPY --from=builder /fast_align_pkg/usr/bin/atools /usr/bin/atools
 
-# Install required Python packages
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the service code
-COPY service.py .
-
-# Expose the web server port
 EXPOSE 8000
 
-# Run the service
-CMD ["uvicorn", "service:app", "--host", "0.0.0.0", "--port", "8000"]
+# The Go binary is the entrypoint.
+ENTRYPOINT ["/app/eflomal-service"]
