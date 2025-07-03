@@ -92,7 +92,9 @@ func calculateIterations(nSentences int, model int, relIterations float64) (int,
 }
 
 func alignHandler(w http.ResponseWriter, r *http.Request) {
-    // Enable CORS
+	log.Printf("[INFO] %s - \"%s %s %s\" Content-Length:%d", r.RemoteAddr, r.Method, r.URL.Path, r.Proto, r.ContentLength)
+    
+	// Enable CORS
     w.Header().Set("Access-Control-Allow-Origin", "*")
     if r.Method == http.MethodOptions {
         w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
